@@ -198,8 +198,8 @@ public class ConcertResource {
         } finally{
             em.close();
         }
-
     }
+
 
     private void checkAuthenticationToken(Cookie clientId) {
         if (clientId == null){

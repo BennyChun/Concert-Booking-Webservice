@@ -22,7 +22,6 @@ public class ConcertApplication extends Application {
 
     public ConcertApplication() {
         _singletons.add(new ConcertResource());//
-        //_classes.add(ConcertResource.class);//
         PersistenceManager pm = new PersistenceManager().instance();
     }
 

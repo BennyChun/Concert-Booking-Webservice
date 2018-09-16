@@ -21,6 +21,7 @@
 	</modules>
 	
 	<dependencies>
+
 		<!-- JUnit. -->
 		<dependency>
 			<groupId>junit</groupId>
