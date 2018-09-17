@@ -1,22 +1,17 @@
 package nz.ac.auckland.concert.service.services;
 
-import nz.ac.auckland.concert.common.dto.ConcertDTO;
-import nz.ac.auckland.concert.common.dto.CreditCardDTO;
-import nz.ac.auckland.concert.common.dto.PerformerDTO;
-import nz.ac.auckland.concert.common.dto.UserDTO;
+import nz.ac.auckland.concert.common.dto.*;
 import nz.ac.auckland.concert.common.message.Messages;
 import nz.ac.auckland.concert.service.Config;
-import nz.ac.auckland.concert.service.domain.Concert;
-import nz.ac.auckland.concert.service.domain.CreditCard;
-import nz.ac.auckland.concert.service.domain.Performer;
-import nz.ac.auckland.concert.service.domain.User;
-import nz.ac.auckland.concert.service.domain.mappers.ConcertMapper;
-import nz.ac.auckland.concert.service.domain.mappers.PerformerMapper;
-import nz.ac.auckland.concert.service.domain.mappers.UserMapper;
+import nz.ac.auckland.concert.service.domain.*;
+import nz.ac.auckland.concert.service.domain.mappers.*;
+import nz.ac.auckland.concert.service.util.TheatreUtility;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.persistence.EntityManager;
+import javax.persistence.LockModeType;
+import javax.persistence.OptimisticLockException;
 import javax.persistence.TypedQuery;
 import javax.ws.rs.*;
 import javax.ws.rs.core.Cookie;
@@ -24,11 +19,11 @@ import javax.ws.rs.core.GenericEntity;
 import javax.ws.rs.core.NewCookie;
 import javax.ws.rs.core.Response;
 import java.net.URI;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
+import java.time.LocalDateTime;
+import java.util.*;
 
 import static nz.ac.auckland.concert.service.Config.CLIENT_COOKIE;
+import static nz.ac.auckland.concert.service.services.ConcertApplication.RESERVATION_EXPIRY_TIME_IN_SECONDS;
 
 
 @Path("/resource")
@@ -196,6 +191,144 @@ public class ConcertResource {
 
             return Response.accepted().build();
         } finally{
+            em.close();
+        }
+    }
+
+    @POST
+    @Path("/reservations")
+    public Response reserveSeat(ReservationRequestDTO reservationRequestDTO, @CookieParam(CLIENT_COOKIE) Cookie clientId){
+        EntityManager em = PersistenceManager.instance().createEntityManager();
+        Reservation tempRes = null;
+        try{
+            em.getTransaction().begin();
+
+            checkAuthenticationToken(clientId);
+
+            User authUser = (User) em.createQuery("SELECT u FROM User u WHERE u._token = :token")
+                    .setParameter("token", clientId.getValue()).getSingleResult();
+
+            if (authUser == null){
+                throw new BadRequestException(Response.status(Response.Status.UNAUTHORIZED)
+                        .entity(Messages.BAD_AUTHENTICATON_TOKEN)
+                        .build());
+            }
+
+            List<Object> resReqDetails = new ArrayList<>();
+            resReqDetails.add(reservationRequestDTO.getConcertId());
+            resReqDetails.add(reservationRequestDTO.getNumberOfSeats());
+            resReqDetails.add(reservationRequestDTO.getSeatType());
+            resReqDetails.add(reservationRequestDTO.getDate());
+            for (Object o : resReqDetails){
+                if (o == null){
+                    throw new BadRequestException(Response.status(Response.Status.BAD_REQUEST)
+                            .entity(Messages.RESERVATION_REQUEST_WITH_MISSING_FIELDS)
+                            .build());
+                }
+            }
+
+            Concert concert = (Concert) em.createQuery("SELECT c FROM Concert c WHERE c._id = :id")
+                    .setParameter("id", reservationRequestDTO.getConcertId()).getSingleResult();
+            if (concert == null){
+                throw new BadRequestException(Response.status(Response.Status.BAD_REQUEST)
+                        .entity(Messages.RESERVATION_REQUEST_WITH_MISSING_FIELDS)
+                        .build());
+            }
+            if (!(concert.getDates().contains(reservationRequestDTO.getDate()))){
+                throw new BadRequestException(Response.status(Response.Status.BAD_REQUEST)
+                        .entity(Messages.CONCERT_NOT_SCHEDULED_ON_RESERVATION_DATE)
+                        .build());
+            }
+
+            // find all booked seats
+            Set<SeatDTO> bookedSeats = new HashSet<>();
+            TypedQuery<Seat> query = em.createQuery(
+                    "SELECT s " +
+                            "FROM Seat s " +
+                            "WHERE s._date = :date " +
+                            "AND s._price = :price " +
+                            "AND s._reservation IS NOT NULL", Seat.class)
+                    .setLockMode(LockModeType.OPTIMISTIC_FORCE_INCREMENT)
+                    .setParameter("date", reservationRequestDTO.getDate())
+                    .setParameter("price", reservationRequestDTO.getSeatType())
+                    .setMaxResults(reservationRequestDTO.getNumberOfSeats());
+            Set<Seat> seats = new HashSet<>(query.getResultList());
+            bookedSeats = SeatMapper.toDTOSet(seats);
+
+            Set<SeatDTO> availableSeats = TheatreUtility.findAvailableSeats(reservationRequestDTO.getNumberOfSeats(),
+                    reservationRequestDTO.getSeatType(),
+                    bookedSeats);
+
+            if (availableSeats.isEmpty()){
+                throw new BadRequestException(Response
+                        .status(Response.Status.BAD_REQUEST)
+                        .entity(Messages.INSUFFICIENT_SEATS_AVAILABLE_FOR_RESERVATION)
+                        .build());
+            }
+
+            Set<Seat> resSeats = new HashSet<>();
+            for (SeatDTO s : availableSeats){
+                Seat rSeat = new Seat(s);
+                resSeats.add(rSeat);
+            }
+            LocalDateTime expiryTime = LocalDateTime.now().plusSeconds(RESERVATION_EXPIRY_TIME_IN_SECONDS);
+            tempRes = new Reservation(resSeats, reservationRequestDTO.getSeatType(),
+                    concert, reservationRequestDTO.getDate(), expiryTime, authUser, false);
+            em.persist(tempRes);
+
+            for (SeatDTO s : availableSeats){
+                Seat rSeat = new Seat(s);
+                rSeat.set_reservation(tempRes);
+                em.persist(rSeat);
+            }
+
+            em.getTransaction().commit();
+
+            return Response.created(URI.create("/reservations" + "/" + tempRes.toString()))
+                    .entity(ReservationMapper.toDto(tempRes))
+                    .build();
+        } catch (OptimisticLockException e) {
+            throw new WebApplicationException(Response.
+                    status(Response.Status.PRECONDITION_FAILED)
+                    .entity("RESOURCE LOCKED")
+                    .build());
+        }finally{
+            em.close();
+        }
+    }
+
+    @POST
+    @Path("/reservations/confirm")
+    public Response confirmReservation(ReservationDTO reservationDTO, @CookieParam(CLIENT_COOKIE) Cookie clientId){
+        EntityManager em = PersistenceManager.instance().createEntityManager();
+        try {
+            em.getTransaction().begin();
+            checkAuthenticationToken(clientId);
+
+            User authUser = (User) em.createQuery("SELECT u FROM User u WHERE u._token = :token")
+                    .setParameter("token", clientId.getValue()).getSingleResult();
+
+            if (authUser == null){
+                throw new BadRequestException(Response.status(Response.Status.UNAUTHORIZED)
+                        .entity(Messages.BAD_AUTHENTICATON_TOKEN)
+                        .build());
+            }
+            TypedQuery<Reservation> query = em.createQuery(
+                    "SELECT r FROM Reservation r" +
+                            "WHERE r._id = :reservationId " +
+                            "AND r._user = :user", Reservation.class)
+                    .setParameter("reservationId", reservationDTO.getId())
+                    .setParameter("user", authUser)
+                    .setLockMode(LockModeType.OPTIMISTIC_FORCE_INCREMENT);
+            Reservation reservation = query.getSingleResult();
+            if (LocalDateTime.now().isAfter(reservation.get_expiryDate())){
+                throw new BadRequestException(Response.status(Response.Status.BAD_REQUEST)
+                        .entity(Messages.EXPIRED_RESERVATION)
+                        .build());
+            }
+
+            return null;
+        } finally {
             em.close();
         }
     }

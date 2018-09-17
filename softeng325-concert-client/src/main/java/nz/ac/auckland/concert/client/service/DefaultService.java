@@ -13,6 +13,7 @@ import nz.ac.auckland.concert.common.dto.*;
 import nz.ac.auckland.concert.common.message.Messages;
 
 import javax.ws.rs.ProcessingException;
+import javax.ws.rs.ServerErrorException;
 import javax.ws.rs.client.Client;
 import javax.ws.rs.client.ClientBuilder;
 import javax.ws.rs.client.Entity;
@@ -191,7 +192,31 @@ public class DefaultService implements ConcertService {
 
     @Override
     public ReservationDTO reserveSeats(ReservationRequestDTO reservationRequest) throws ServiceException {
-        return null;
+        Client client = ClientBuilder.newClient();
+        ReservationDTO resDTO = null;
+        try{
+            Invocation.Builder builder = client.target(WEB_SERVICE_URI + "/reservations")
+                    .request(MediaType.APPLICATION_XML)
+                    .accept(MediaType.APPLICATION_XML);
+
+            if (!(cookieSet.isEmpty())){
+                builder.cookie(CLIENT_COOKIE, cookieSet.iterator().next());
+            }
+
+            Response res = builder.post(Entity.entity(reservationRequest, MediaType.APPLICATION_XML));
+
+            if (res.getStatus() == Response.Status.CREATED.getStatusCode()){
+                resDTO = res.readEntity(ReservationDTO.class);
+                return resDTO;
+            } else {
+                throw new ServiceException(res.readEntity(String.class));
+            }
+
+        } catch (ProcessingException e){
+            throw new ServiceException(Messages.SERVICE_COMMUNICATION_ERROR);
+        } finally {
+            client.close();
+        }
     }
 
     @Override

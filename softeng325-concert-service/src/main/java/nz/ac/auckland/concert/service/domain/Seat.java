@@ -1,5 +1,6 @@
 package nz.ac.auckland.concert.service.domain;
 
+import nz.ac.auckland.concert.common.dto.SeatDTO;
 import nz.ac.auckland.concert.common.types.PriceBand;
 import nz.ac.auckland.concert.common.types.SeatNumber;
 import nz.ac.auckland.concert.common.types.SeatRow;
@@ -42,7 +43,7 @@ public class Seat {
 	@Enumerated(EnumType.STRING)
 	private PriceBand _price;
 
-	@Column(name = "DATE")
+	@Column(name = "CONCERT_DATE")
 	private LocalDateTime _date;
 
 	@Column(name = "TIMESTAMP")
@@ -56,6 +57,11 @@ public class Seat {
 	public Seat(SeatRow row, SeatNumber number) {
 		_row = row;
 		_number = number;
+	}
+
+	public Seat(SeatDTO seat){
+		_row = seat.getRow();
+		_number = seat.getNumber();
 	}
 	
 	public SeatRow getRow() {
@@ -92,6 +98,14 @@ public class Seat {
 
 	public void set_timestamp(LocalDateTime _timestamp) {
 		this._timestamp = _timestamp;
+	}
+
+	public Reservation get_reservation() {
+		return _reservation;
+	}
+
+	public void set_reservation(Reservation _reservation) {
+		this._reservation = _reservation;
 	}
 
 	@Override

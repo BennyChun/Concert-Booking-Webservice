@@ -49,20 +49,36 @@ public class Reservation {
 	@JoinColumn
 	private Concert _concert;
 
-	@Column(name = "DATE")
+	@Column(name = "CONCERT_DATE")
 	private LocalDateTime _date;
+
+	@Column(name = "EXPIRY")
+	private LocalDateTime _expiryDate;
 
 	@ManyToOne(cascade = CascadeType.PERSIST)
 	@JoinColumn(nullable = false)
 	private User _user;
 
+	@Column(name = "CONFIRMED", nullable = false)
+	private boolean _confirmed;
+
 	public Reservation() {}
 
-	public Reservation(Long id, ReservationRequestDTO request, Set<Seat> seats) {
+	public Reservation(Long id, Set<Seat> seats) {
 		_id = id;
 		_seats = new HashSet<Seat>(seats);
 	}
-	
+
+	public Reservation(Set<Seat> _seats, PriceBand _priceBand, Concert _concert, LocalDateTime _date, LocalDateTime _expiryDate, User _user, boolean _confirmed) {
+		this._seats = _seats;
+		this._priceBand = _priceBand;
+		this._concert = _concert;
+		this._date = _date;
+		this._expiryDate = _expiryDate;
+		this._user = _user;
+		this._confirmed = _confirmed;
+	}
+
 	public Long getId() {
 		return _id;
 	}
@@ -70,7 +86,55 @@ public class Reservation {
 	public Set<Seat> getSeats() {
 		return Collections.unmodifiableSet(_seats);
 	}
-	
+
+	public PriceBand get_priceBand() {
+		return _priceBand;
+	}
+
+	public void set_priceBand(PriceBand _priceBand) {
+		this._priceBand = _priceBand;
+	}
+
+	public Concert get_concert() {
+		return _concert;
+	}
+
+	public void set_concert(Concert _concert) {
+		this._concert = _concert;
+	}
+
+	public LocalDateTime get_date() {
+		return _date;
+	}
+
+	public void set_date(LocalDateTime _date) {
+		this._date = _date;
+	}
+
+	public LocalDateTime get_expiryDate() {
+		return _expiryDate;
+	}
+
+	public void set_expiryDate(LocalDateTime _expiryDate) {
+		this._expiryDate = _expiryDate;
+	}
+
+	public User get_user() {
+		return _user;
+	}
+
+	public void set_user(User _user) {
+		this._user = _user;
+	}
+
+	public boolean is_confirmed() {
+		return _confirmed;
+	}
+
+	public void set_confirmed(boolean _confirmed) {
+		this._confirmed = _confirmed;
+	}
+
 	@Override
 	public boolean equals(Object obj) {
 		if (!(obj instanceof Reservation))
