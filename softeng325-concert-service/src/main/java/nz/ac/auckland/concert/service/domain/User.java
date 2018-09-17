@@ -35,7 +35,7 @@ public class User {
 	@Column(unique = true)
 	private String _token;
 
-	@ManyToOne
+	@ManyToOne(cascade = CascadeType.ALL)
 	private CreditCard _creditCard;
 
 	protected User() {}

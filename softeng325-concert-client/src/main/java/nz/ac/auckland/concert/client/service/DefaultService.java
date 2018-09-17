@@ -221,7 +221,29 @@ public class DefaultService implements ConcertService {
 
     @Override
     public void confirmReservation(ReservationDTO reservation) throws ServiceException {
+        Client client = ClientBuilder.newClient();
+        try {
+            Invocation.Builder builder = client.target(WEB_SERVICE_URI + "/reservations/confirm")
+                    .request(MediaType.APPLICATION_XML)
+                    .accept(MediaType.APPLICATION_XML);
 
+            if (!(cookieSet.isEmpty())){
+                builder.cookie(CLIENT_COOKIE, cookieSet.iterator().next());
+            }
+
+            Response res = builder.post(Entity.entity(reservation, MediaType.APPLICATION_XML));
+
+            if(res.getStatus() == Response.Status.NO_CONTENT.getStatusCode()){
+                return;
+            } else {
+                throw new ServiceException(res.readEntity(String.class));
+            }
+
+        } catch (ProcessingException e) {
+            throw new ServiceException(Messages.SERVICE_COMMUNICATION_ERROR);
+        } finally {
+            client.close();
+        }
     }
 
     @Override
@@ -241,7 +263,6 @@ public class DefaultService implements ConcertService {
             } else{
                 throw new ServiceException(res.readEntity(String.class));
             }
-
         } catch (ProcessingException e){
             throw new ServiceException(Messages.SERVICE_COMMUNICATION_ERROR);
         } finally {
@@ -251,24 +272,30 @@ public class DefaultService implements ConcertService {
 
     @Override
     public Set<BookingDTO> getBookings() throws ServiceException {
-        return null;
-    }
+        Client client = ClientBuilder.newClient();
+        Set<BookingDTO> bookingDTOs= null;
+        try {
+            Invocation.Builder builder = client.target(WEB_SERVICE_URI + "/reservations")
+                    .request(MediaType.APPLICATION_XML)
+                    .accept(MediaType.APPLICATION_XML);
 
-    private static void download(AmazonS3 s3, String imageName) {
+            if (!(cookieSet.isEmpty())){
+                builder.cookie(CLIENT_COOKIE, cookieSet.iterator().next());
+            }
 
-        File downloadDirectory = new File(DOWNLOAD_DIRECTORY);
-        System.out.println("Will download " + imageName + " to: " + downloadDirectory.getPath());
+            Response res = builder.get();
 
-
-        File imageFile = new File(downloadDirectory, imageName);
-
-        if (imageFile.exists()) {
-            imageFile.delete();
+            if (res.getStatus() == Response.Status.OK.getStatusCode()){
+                bookingDTOs = res.readEntity(new GenericType<Set<BookingDTO>>() {
+                });
+            } else {
+                throw new ServiceException(res.readEntity(String.class));
+            }
+            return bookingDTOs;
+        } catch (ProcessingException e) {
+            throw new ServiceException(Messages.SERVICE_COMMUNICATION_ERROR);
+        } finally {
+            client.close();
         }
-        System.out.print("Downloading " + imageName + "... ");
-        GetObjectRequest req = new GetObjectRequest(AWS_BUCKET, imageName);
-        s3.getObject(req, imageFile);
-        System.out.println("Complete!");
-
     }
 }

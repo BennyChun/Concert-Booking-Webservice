@@ -24,7 +24,7 @@ public class ConcertApplication extends Application {
     public static final int RESERVATION_EXPIRY_TIME_IN_SECONDS = 5;
 
     public ConcertApplication() {
-        //clearDatabase();
+        clearDatabase();
         _singletons.add(new ConcertResource());//
         _singletons.add(new PersistenceManager());
         //PersistenceManager pm = new PersistenceManager().instance();
@@ -37,10 +37,11 @@ public class ConcertApplication extends Application {
             em = PersistenceManager.instance().createEntityManager();
             em.getTransaction().begin();
 
-            em.createQuery("DELETE FROM User").executeUpdate();
-            em.createQuery("DELETE FROM CreditCard").executeUpdate();
             em.createQuery("DELETE FROM Seat").executeUpdate();
             em.createQuery("DELETE FROM Reservation").executeUpdate();
+            em.createQuery("DELETE FROM User").executeUpdate();
+            em.createQuery("DELETE FROM CreditCard").executeUpdate();
+
 
             em.flush();
             em.clear();

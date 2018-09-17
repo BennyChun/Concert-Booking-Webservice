@@ -14,6 +14,7 @@ import javax.persistence.LockModeType;
 import javax.persistence.OptimisticLockException;
 import javax.persistence.TypedQuery;
 import javax.ws.rs.*;
+import javax.ws.rs.client.ClientBuilder;
 import javax.ws.rs.core.Cookie;
 import javax.ws.rs.core.GenericEntity;
 import javax.ws.rs.core.NewCookie;
@@ -286,6 +287,7 @@ public class ConcertResource {
 
             return Response.created(URI.create("/reservations" + "/" + tempRes.toString()))
                     .entity(ReservationMapper.toDto(tempRes))
+                    .cookie(createCookie(clientId))
                     .build();
         } catch (OptimisticLockException e) {
             throw new WebApplicationException(Response.
@@ -301,8 +303,63 @@ public class ConcertResource {
     @Path("/reservations/confirm")
     public Response confirmReservation(ReservationDTO reservationDTO, @CookieParam(CLIENT_COOKIE) Cookie clientId){
         EntityManager em = PersistenceManager.instance().createEntityManager();
+
+        checkAuthenticationToken(clientId);
+
         try {
             em.getTransaction().begin();
+
+            User authUser = (User) em.createQuery("SELECT u FROM User u WHERE u._token = :token")
+                    .setParameter("token", clientId.getValue()).getSingleResult();
+
+            if (authUser == null){
+                throw new BadRequestException(Response.status(Response.Status.UNAUTHORIZED)
+                        .entity(Messages.BAD_AUTHENTICATON_TOKEN)
+                        .build());
+            }
+
+            TypedQuery<Reservation> query = em.createQuery(
+                    "SELECT r FROM Reservation r " +
+                            "WHERE r._id = :reservationId " +
+                            "AND r._user = :user", Reservation.class)
+                    .setParameter("reservationId", reservationDTO.getId())
+                    .setParameter("user", authUser)
+                    .setLockMode(LockModeType.OPTIMISTIC_FORCE_INCREMENT);
+
+            Reservation reservation = query.getSingleResult();
+            if (LocalDateTime.now().isAfter(reservation.get_expiryDate())){
+                throw new BadRequestException(Response.status(Response.Status.BAD_REQUEST)
+                        .entity(Messages.EXPIRED_RESERVATION)
+                        .build());
+            }
+
+            CreditCard card = authUser.getCreditCard();
+            if (card == null){
+                return Response.status(Response.Status.BAD_REQUEST)
+                        .entity(Messages.CREDIT_CARD_NOT_REGISTERED)
+                        .build();
+            }
+
+            reservation.set_confirmed(true);
+            // set expriry to near infinite
+            reservation.set_expiryDate(LocalDateTime.now().plusYears(100L));
+            em.persist(reservation);
+            em.getTransaction().commit();
+            return Response.status(Response.Status.NO_CONTENT)
+                    .cookie(createCookie(clientId))
+                    .build();
+        } finally {
+            em.close();
+        }
+    }
+
+    @GET
+    @Path("/reservations")
+    public Response getBookings(@CookieParam(CLIENT_COOKIE) Cookie clientId){
+        EntityManager em = PersistenceManager.instance().createEntityManager();
+        try {
+            em.getTransaction().begin();
+
             checkAuthenticationToken(clientId);
 
             User authUser = (User) em.createQuery("SELECT u FROM User u WHERE u._token = :token")
@@ -313,26 +370,29 @@ public class ConcertResource {
                         .entity(Messages.BAD_AUTHENTICATON_TOKEN)
                         .build());
             }
+
             TypedQuery<Reservation> query = em.createQuery(
-                    "SELECT r FROM Reservation r" +
-                            "WHERE r._id = :reservationId " +
+                    "SELECT r FROM Reservation r " +
+                            "WHERE r._confirmed = true " +
                             "AND r._user = :user", Reservation.class)
-                    .setParameter("reservationId", reservationDTO.getId())
-                    .setParameter("user", authUser)
-                    .setLockMode(LockModeType.OPTIMISTIC_FORCE_INCREMENT);
-            Reservation reservation = query.getSingleResult();
-            if (LocalDateTime.now().isAfter(reservation.get_expiryDate())){
-                throw new BadRequestException(Response.status(Response.Status.BAD_REQUEST)
-                        .entity(Messages.EXPIRED_RESERVATION)
-                        .build());
+                    .setParameter("user", authUser);
+            List<Reservation> reservations = query.getResultList();
+
+            Set<BookingDTO> bookings = new HashSet<>();
+            for (Reservation r : reservations) {
+                bookings.add(ReservationMapper.convertToBooking(r));
             }
 
-            return null;
+            em.getTransaction().commit();
+
+            GenericEntity<Set<BookingDTO>> ge = new GenericEntity<Set<BookingDTO>>(bookings){};
+
+            return Response.ok(ge)
+                    .build();
         } finally {
-            em.close();
+          em.close();
         }
     }
-
 
     private void checkAuthenticationToken(Cookie clientId) {
         if (clientId == null){
